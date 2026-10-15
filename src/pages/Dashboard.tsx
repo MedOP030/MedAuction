@@ -71,7 +71,7 @@ export default function Dashboard() {
     navigate('/');
   };
 
-  const handleJoinAuction = () => {
+  const handleJoinAuction = async () => {
     if (!joinToken.trim()) {
       setJoinMessage({ type: 'error', text: 'Please enter an invite link or token.' });
       return;
@@ -88,33 +88,37 @@ export default function Dashboard() {
 
     if (!currentUser) return;
 
-    const result = acceptInvitation(token, currentUser.id);
-    
-    if (result.success) {
-      setJoinMessage({ type: 'success', text: 'Invitation accepted! Redirecting...' });
-      setJoinToken('');
+    try {
+      const result = await acceptInvitation(token, currentUser.id);
       
-      // Find the invitation to get role and auction ID
-      const invitation = invitations.find(i => i.token === token);
-      if (invitation) {
-        setTimeout(() => {
-          const role = invitation.role;
-          const auctionId = invitation.auctionId;
-          if (role === 'captain') {
-            navigate(`/auction/${auctionId}/captain`);
-          } else if (role === 'auctioneer') {
-            navigate(`/auction/${auctionId}/auctioneer`);
-          } else if (role === 'streamer') {
-            navigate(`/auction/${auctionId}/streamer`);
-          } else {
-            navigate(`/auction/${auctionId}/spectator`);
-          }
-        }, 1000);
+      if (result.success) {
+        setJoinMessage({ type: 'success', text: 'Invitation accepted! Redirecting...' });
+        setJoinToken('');
+        
+        // Find the invitation to get role and auction ID
+        const invitation = invitations.find(i => i.token === token);
+        if (invitation) {
+          setTimeout(() => {
+            const role = invitation.role;
+            const auctionId = invitation.auctionId;
+            if (role === 'captain') {
+              navigate(`/auction/${auctionId}/captain`);
+            } else if (role === 'auctioneer') {
+              navigate(`/auction/${auctionId}/auctioneer`);
+            } else if (role === 'streamer') {
+              navigate(`/auction/${auctionId}/streamer`);
+            } else {
+              navigate(`/auction/${auctionId}/spectator`);
+            }
+          }, 1000);
+        } else {
+          setTimeout(() => navigate('/dashboard'), 1000);
+        }
       } else {
-        setTimeout(() => navigate('/dashboard'), 1000);
+        setJoinMessage({ type: 'error', text: result.error || 'Failed to accept invitation.' });
       }
-    } else {
-      setJoinMessage({ type: 'error', text: result.error || 'Failed to accept invitation.' });
+    } catch (err) {
+      setJoinMessage({ type: 'error', text: 'Failed to accept invitation. Please try again.' });
     }
 
     // Clear message after 3 seconds
