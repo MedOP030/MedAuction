@@ -31,7 +31,7 @@ export default function Invitations() {
   };
 
   const handleCopyToken = (token: string) => {
-    const url = `${window.location.origin}/invite/${token}`;
+    const url = `${window.location.origin}${window.location.pathname}#/invite/${token}`;
     navigator.clipboard.writeText(url);
     setCopiedToken(token);
     setTimeout(() => setCopiedToken(null), 2000);

@@ -4,7 +4,7 @@ import { useStore } from '../store';
 import { Auction, AuctionStatus, formatCurrency, CURRENCY_SYMBOLS } from '../types';
 import {
   Trophy, Plus, LogOut, Search, Filter, Calendar, Users, Hash,
-  ChevronRight, Settings, Eye, Radio, CheckCircle, Clock, Archive, Sparkles
+  ChevronRight, Settings, Eye, Radio, CheckCircle, Clock, Archive, Sparkles, Link2
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -15,9 +15,13 @@ export default function Dashboard() {
   const runs = useStore(s => s.runs);
   const logout = useStore(s => s.logout);
   const seedDemoData = useStore(s => s.seedDemoData);
+  const acceptInvitation = useStore(s => s.acceptInvitation);
+  const invitations = useStore(s => s.invitations);
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [joinToken, setJoinToken] = useState('');
+  const [joinMessage, setJoinMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   if (!currentUser) return null;
 
@@ -67,6 +71,56 @@ export default function Dashboard() {
     navigate('/');
   };
 
+  const handleJoinAuction = () => {
+    if (!joinToken.trim()) {
+      setJoinMessage({ type: 'error', text: 'Please enter an invite link or token.' });
+      return;
+    }
+
+    // Extract token from URL or use as-is
+    let token = joinToken.trim();
+    
+    // If it's a full URL, extract the token
+    if (token.includes('/invite/')) {
+      const parts = token.split('/invite/');
+      token = parts[parts.length - 1].split('#')[0].split('?')[0];
+    }
+
+    if (!currentUser) return;
+
+    const result = acceptInvitation(token, currentUser.id);
+    
+    if (result.success) {
+      setJoinMessage({ type: 'success', text: 'Invitation accepted! Redirecting...' });
+      setJoinToken('');
+      
+      // Find the invitation to get role and auction ID
+      const invitation = invitations.find(i => i.token === token);
+      if (invitation) {
+        setTimeout(() => {
+          const role = invitation.role;
+          const auctionId = invitation.auctionId;
+          if (role === 'captain') {
+            navigate(`/auction/${auctionId}/captain`);
+          } else if (role === 'auctioneer') {
+            navigate(`/auction/${auctionId}/auctioneer`);
+          } else if (role === 'streamer') {
+            navigate(`/auction/${auctionId}/streamer`);
+          } else {
+            navigate(`/auction/${auctionId}/spectator`);
+          }
+        }, 1000);
+      } else {
+        setTimeout(() => navigate('/dashboard'), 1000);
+      }
+    } else {
+      setJoinMessage({ type: 'error', text: result.error || 'Failed to accept invitation.' });
+    }
+
+    // Clear message after 3 seconds
+    setTimeout(() => setJoinMessage(null), 3000);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50">
       {/* Header */}
@@ -108,6 +162,42 @@ export default function Dashboard() {
               <p className="text-2xl font-bold text-slate-800">{stat.value}</p>
             </div>
           ))}
+        </div>
+
+        {/* Join Auction Card */}
+        <div className="bg-gradient-to-r from-blue-50 to-teal-50 border border-blue-200 rounded-xl p-5 mb-6 shadow-sm">
+          <div className="flex items-start gap-3 mb-3">
+            <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center flex-shrink-0">
+              <Link2 className="w-5 h-5 text-white" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-semibold text-slate-800 mb-1">Join an Auction</h3>
+              <p className="text-sm text-slate-600">Paste your invitation link or token to join as a captain, auctioneer, or streamer.</p>
+            </div>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="text"
+              value={joinToken}
+              onChange={e => { setJoinToken(e.target.value); setJoinMessage(null); }}
+              onKeyDown={e => e.key === 'Enter' && handleJoinAuction()}
+              placeholder="https://example.com/#/invite/abc123... or paste token"
+              className="flex-1 px-4 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
+            />
+            <button
+              onClick={handleJoinAuction}
+              className="px-5 py-2.5 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 transition shadow-sm whitespace-nowrap"
+            >
+              Join Auction
+            </button>
+          </div>
+          {joinMessage && (
+            <div className={`mt-3 px-3 py-2 rounded-lg text-sm ${
+              joinMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+            }`}>
+              {joinMessage.text}
+            </div>
+          )}
         </div>
 
         {/* Actions Bar */}
