@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
+import { auth, db } from '../firebase';
 import { useStore } from '../store';
 import { Trophy, AlertCircle } from 'lucide-react';
 
@@ -7,17 +10,47 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const login = useStore(s => s.login);
+  const [loading, setLoading] = useState(false);
+  const setCurrentUser = useStore(s => s.setCurrentUser);
   const navigate = useNavigate();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    const result = login(email, password);
-    if (result.success) {
-      navigate('/dashboard');
-    } else {
-      setError(result.error || 'Login failed');
+    setLoading(true);
+    
+    try {
+      // Sign in with Firebase Auth
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const firebaseUser = userCredential.user;
+      
+      // Fetch user profile from Firestore
+      const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+      
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        setCurrentUser({
+          id: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          name: userData.name || firebaseUser.displayName || '',
+          createdAt: userData.createdAt || new Date().toISOString(),
+          isPlatformAdmin: userData.isPlatformAdmin || false
+        });
+        navigate('/dashboard');
+      } else {
+        setError('User profile not found. Please contact support.');
+      }
+    } catch (err: any) {
+      console.error('Login error:', err);
+      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+        setError('Invalid email or password.');
+      } else if (err.code === 'auth/too-many-requests') {
+        setError('Too many failed attempts. Please try again later.');
+      } else {
+        setError(err.message || 'Login failed. Please try again.');
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -66,9 +99,10 @@ export default function Login() {
           </div>
           <button
             type="submit"
-            className="w-full py-3 bg-gradient-to-r from-teal-500 to-blue-500 text-white rounded-lg font-semibold hover:from-teal-600 hover:to-blue-600 transition shadow-lg"
+            disabled={loading}
+            className="w-full py-3 bg-gradient-to-r from-teal-500 to-blue-500 text-white rounded-lg font-semibold hover:from-teal-600 hover:to-blue-600 transition shadow-lg disabled:opacity-50"
           >
-            Sign In
+            {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
 

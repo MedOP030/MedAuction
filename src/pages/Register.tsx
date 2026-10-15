@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { auth, db } from '../firebase';
 import { useStore } from '../store';
 import { Trophy, AlertCircle } from 'lucide-react';
 
@@ -9,12 +12,14 @@ export default function Register() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
-  const register = useStore(s => s.register);
+  const [loading, setLoading] = useState(false);
+  const setCurrentUser = useStore(s => s.setCurrentUser);
   const navigate = useNavigate();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    
     if (password !== confirmPassword) {
       setError('Passwords do not match.');
       return;
@@ -23,11 +28,45 @@ export default function Register() {
       setError('Password must be at least 6 characters.');
       return;
     }
-    const result = register(email, password, name);
-    if (result.success) {
+    
+    setLoading(true);
+    
+    try {
+      // Create user with Firebase Auth
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const firebaseUser = userCredential.user;
+      
+      // Store user profile in Firestore
+      await setDoc(doc(db, 'users', firebaseUser.uid), {
+        name,
+        email,
+        createdAt: serverTimestamp(),
+        isPlatformAdmin: false
+      });
+      
+      // Update local state
+      setCurrentUser({
+        id: firebaseUser.uid,
+        email,
+        name,
+        createdAt: new Date().toISOString(),
+        isPlatformAdmin: false
+      });
+      
       navigate('/dashboard');
-    } else {
-      setError(result.error || 'Registration failed');
+    } catch (err: any) {
+      console.error('Registration error:', err);
+      if (err.code === 'auth/email-already-in-use') {
+        setError('An account with this email already exists.');
+      } else if (err.code === 'auth/weak-password') {
+        setError('Password is too weak. Please use a stronger password.');
+      } else if (err.code === 'auth/invalid-email') {
+        setError('Invalid email address.');
+      } else {
+        setError(err.message || 'Registration failed. Please try again.');
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -98,9 +137,10 @@ export default function Register() {
           </div>
           <button
             type="submit"
-            className="w-full py-3 bg-gradient-to-r from-teal-500 to-blue-500 text-white rounded-lg font-semibold hover:from-teal-600 hover:to-blue-600 transition shadow-lg"
+            disabled={loading}
+            className="w-full py-3 bg-gradient-to-r from-teal-500 to-blue-500 text-white rounded-lg font-semibold hover:from-teal-600 hover:to-blue-600 transition shadow-lg disabled:opacity-50"
           >
-            Create Account
+            {loading ? 'Creating account...' : 'Create Account'}
           </button>
         </form>
 

@@ -6,11 +6,17 @@ import {
   AuctionMode, LotStatus, RunStatus, DEFAULT_SETTINGS, generateId,
   validateBid, getRemainingPurse, getAvailableSlots, formatCurrency, Currency
 } from './types';
+import { db } from './firebase';
+import {
+  collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc,
+  query, where, onSnapshot, orderBy, serverTimestamp, Timestamp
+} from 'firebase/firestore';
 
 interface AppState {
   // Auth
   currentUser: User | null;
   users: User[];
+  setCurrentUser: (user: User | null) => void;
   login: (email: string, password: string) => { success: boolean; error?: string };
   register: (email: string, password: string, name: string) => { success: boolean; error?: string };
   logout: () => void;
@@ -63,7 +69,7 @@ interface AppState {
   // Invitations
   invitations: Invitation[];
   createInvitation: (auctionId: string, email: string, role: string, teamId?: string | null) => Invitation;
-  acceptInvitation: (token: string, userId: string) => { success: boolean; error?: string };
+  acceptInvitation: (token: string, userId: string) => Promise<{ success: boolean; error?: string }>;
   revokeInvitation: (id: string) => void;
 
   // Actions (audit log)
@@ -88,6 +94,10 @@ export const useStore = create<AppState>()(
       currentUser: null,
       users: [],
       passwords: {},
+
+      setCurrentUser: (user: User | null) => {
+        set({ currentUser: user });
+      },
 
       login: (email: string, password: string) => {
         const state = get();
@@ -143,12 +153,29 @@ export const useStore = create<AppState>()(
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
-        set({ auctions: [...state.auctions, auction] });
+        
+        // Save to Firestore in background
+        setDoc(doc(db, 'auctions', auction.id), {
+          ...auction,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        }).catch(err => console.error('Error creating auction in Firestore:', err));
+        
         // Auto-add owner membership
         if (state.currentUser) {
+          const membershipId = generateId();
+          setDoc(doc(db, 'auctions', auction.id, 'memberships', membershipId), {
+            id: membershipId,
+            auctionId: auction.id,
+            userId: state.currentUser.id,
+            role: 'owner',
+            teamId: null,
+            createdAt: serverTimestamp()
+          }).catch(err => console.error('Error creating membership in Firestore:', err));
+          
           set({
             memberships: [...state.memberships, {
-              id: generateId(),
+              id: membershipId,
               auctionId: auction.id,
               userId: state.currentUser.id,
               role: 'owner',
@@ -157,6 +184,8 @@ export const useStore = create<AppState>()(
             }]
           });
         }
+        
+        set({ auctions: [...state.auctions, auction] });
         return auction;
       },
 
@@ -166,6 +195,12 @@ export const useStore = create<AppState>()(
             a.id === id ? { ...a, ...data, updatedAt: new Date().toISOString() } : a
           ),
         });
+        
+        // Update in Firestore in background
+        updateDoc(doc(db, 'auctions', id), {
+          ...data,
+          updatedAt: serverTimestamp()
+        }).catch(err => console.error('Error updating auction in Firestore:', err));
       },
 
       deleteAuction: (id) => {
@@ -180,6 +215,9 @@ export const useStore = create<AppState>()(
           actions: get().actions.filter(a => a.auctionId !== id),
           purchases: get().purchases.filter(p => p.auctionId !== id),
         });
+        
+        // Delete from Firestore in background
+        deleteDoc(doc(db, 'auctions', id)).catch(err => console.error('Error deleting auction from Firestore:', err));
       },
 
       changeAuctionStatus: (id, status) => {
@@ -206,6 +244,13 @@ export const useStore = create<AppState>()(
           createdAt: new Date().toISOString(),
         };
         set({ teams: [...state.teams, team] });
+        
+        // Save to Firestore in background
+        setDoc(doc(db, 'teams', team.id), {
+          ...team,
+          createdAt: serverTimestamp()
+        }).catch(err => console.error('Error creating team in Firestore:', err));
+        
         return team;
       },
 
@@ -213,10 +258,16 @@ export const useStore = create<AppState>()(
         set({
           teams: get().teams.map(t => t.id === id ? { ...t, ...data } : t),
         });
+        
+        // Update in Firestore in background
+        updateDoc(doc(db, 'teams', id), data).catch(err => console.error('Error updating team in Firestore:', err));
       },
 
       deleteTeam: (id) => {
         set({ teams: get().teams.filter(t => t.id !== id) });
+        
+        // Delete from Firestore in background
+        deleteDoc(doc(db, 'teams', id)).catch(err => console.error('Error deleting team from Firestore:', err));
       },
 
       // Lots
@@ -243,6 +294,14 @@ export const useStore = create<AppState>()(
           updatedAt: new Date().toISOString(),
         };
         set({ lots: [...state.lots, lot] });
+        
+        // Save to Firestore in background
+        setDoc(doc(db, 'lots', lot.id), {
+          ...lot,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        }).catch(err => console.error('Error creating lot in Firestore:', err));
+        
         return lot;
       },
 
@@ -252,19 +311,34 @@ export const useStore = create<AppState>()(
             l.id === id ? { ...l, ...data, updatedAt: new Date().toISOString() } : l
           ),
         });
+        
+        // Update in Firestore in background
+        updateDoc(doc(db, 'lots', id), {
+          ...data,
+          updatedAt: serverTimestamp()
+        }).catch(err => console.error('Error updating lot in Firestore:', err));
       },
 
       deleteLot: (id) => {
         set({ lots: get().lots.filter(l => l.id !== id) });
+        
+        // Delete from Firestore in background
+        deleteDoc(doc(db, 'lots', id)).catch(err => console.error('Error deleting lot from Firestore:', err));
       },
 
       reorderLots: (auctionId, lotIds) => {
-        set({
-          lots: get().lots.map(l => {
-            if (l.auctionId !== auctionId) return l;
-            const newPos = lotIds.indexOf(l.id);
-            return { ...l, queuePosition: newPos >= 0 ? newPos + 1 : l.queuePosition };
-          }),
+        const updatedLots = get().lots.map(l => {
+          if (l.auctionId !== auctionId) return l;
+          const newPos = lotIds.indexOf(l.id);
+          return { ...l, queuePosition: newPos >= 0 ? newPos + 1 : l.queuePosition };
+        });
+        
+        set({ lots: updatedLots });
+        
+        // Update all lots in Firestore
+        updatedLots.filter(l => l.auctionId === auctionId).forEach(lot => {
+          updateDoc(doc(db, 'lots', lot.id), { queuePosition: lot.queuePosition })
+            .catch(err => console.error('Error reordering lot in Firestore:', err));
         });
       },
 
@@ -631,21 +705,62 @@ export const useStore = create<AppState>()(
           acceptedBy: null,
         };
         set({ invitations: [...state.invitations, invitation] });
+        
+        // Save to Firestore in background
+        setDoc(doc(db, 'invitations', invitation.id), {
+          ...invitation,
+          createdAt: serverTimestamp()
+        }).catch(err => console.error('Error creating invitation in Firestore:', err));
+        
         return invitation;
       },
 
-      acceptInvitation: (token, userId) => {
+      acceptInvitation: async (token, userId) => {
         const state = get();
-        const invitation = state.invitations.find(i => i.token === token);
+        
+        // First try to find in local state
+        let invitation = state.invitations.find(i => i.token === token);
+        
+        // If not found locally, try to fetch from Firestore
+        if (!invitation) {
+          try {
+            const invitationsSnapshot = await getDocs(
+              query(collection(db, 'invitations'), where('token', '==', token))
+            );
+            
+            if (!invitationsSnapshot.empty) {
+              const docData = invitationsSnapshot.docs[0].data();
+              invitation = {
+                ...docData,
+                id: invitationsSnapshot.docs[0].id,
+                createdAt: docData.createdAt?.toDate?.().toISOString() || new Date().toISOString(),
+                expiresAt: docData.expiresAt?.toDate?.().toISOString() || docData.expiresAt,
+              } as Invitation;
+              
+              // Add to local state
+              set({ invitations: [...state.invitations, invitation] });
+            }
+          } catch (err) {
+            console.error('Error fetching invitation from Firestore:', err);
+          }
+        }
+        
         if (!invitation) return { success: false, error: 'Invitation not found.' };
         if (invitation.status !== 'pending') return { success: false, error: 'Invitation is no longer valid.' };
         if (new Date(invitation.expiresAt) < new Date()) return { success: false, error: 'Invitation has expired.' };
 
         set({
           invitations: state.invitations.map(i =>
-            i.id === invitation.id ? { ...i, status: 'accepted' as const, acceptedBy: userId } : i
+            i.id === invitation!.id ? { ...i, status: 'accepted' as const, acceptedBy: userId } : i
           ),
         });
+
+        // Update in Firestore
+        updateDoc(doc(db, 'invitations', invitation.id), {
+          status: 'accepted',
+          acceptedBy: userId,
+          acceptedAt: serverTimestamp()
+        }).catch(err => console.error('Error updating invitation in Firestore:', err));
 
         // Add membership
         get().addMembership(invitation.auctionId, userId, invitation.role, invitation.teamId);
@@ -655,7 +770,7 @@ export const useStore = create<AppState>()(
           const user = state.users.find(u => u.id === userId);
           get().updateTeam(invitation.teamId, {
             captainId: userId,
-            captainName: user?.name || '',
+            captainName: user?.name || state.currentUser?.name || '',
           });
         }
 
@@ -668,6 +783,10 @@ export const useStore = create<AppState>()(
             i.id === id ? { ...i, status: 'revoked' as const } : i
           ),
         });
+        
+        // Update in Firestore
+        updateDoc(doc(db, 'invitations', id), { status: 'revoked' })
+          .catch(err => console.error('Error revoking invitation in Firestore:', err));
       },
 
       // Actions

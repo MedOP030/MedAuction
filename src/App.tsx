@@ -52,30 +52,31 @@ function InviteAccept() {
 
   React.useEffect(() => {
     if (token && currentUser) {
-      const res = acceptInvitation(token, currentUser.id);
-      setResult(res);
-      
-      // Auto-redirect after successful acceptance
-      if (res.success) {
-        setTimeout(() => {
-          const invitation = invitations.find(i => i.token === token);
-          if (invitation) {
-            const role = invitation.role;
-            const auctionId = invitation.auctionId;
-            if (role === 'captain') {
-              navigate(`/auction/${auctionId}/captain`);
-            } else if (role === 'auctioneer') {
-              navigate(`/auction/${auctionId}/auctioneer`);
-            } else if (role === 'streamer') {
-              navigate(`/auction/${auctionId}/streamer`);
+      acceptInvitation(token, currentUser.id).then(res => {
+        setResult(res);
+        
+        // Auto-redirect after successful acceptance
+        if (res.success) {
+          setTimeout(() => {
+            const invitation = invitations.find(i => i.token === token);
+            if (invitation) {
+              const role = invitation.role;
+              const auctionId = invitation.auctionId;
+              if (role === 'captain') {
+                navigate(`/auction/${auctionId}/captain`);
+              } else if (role === 'auctioneer') {
+                navigate(`/auction/${auctionId}/auctioneer`);
+              } else if (role === 'streamer') {
+                navigate(`/auction/${auctionId}/streamer`);
+              } else {
+                navigate(`/auction/${auctionId}/spectator`);
+              }
             } else {
-              navigate(`/auction/${auctionId}/spectator`);
+              navigate('/dashboard');
             }
-          } else {
-            navigate('/dashboard');
-          }
-        }, 1500);
-      }
+          }, 1500);
+        }
+      });
     }
   }, [token, currentUser]);
 
