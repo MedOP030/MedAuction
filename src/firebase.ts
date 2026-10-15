@@ -3,7 +3,7 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDB9tvd0Whr9kYr3ivsNN1k57UfudvzJE",
+  apiKey: "AIzaSyDB9tvd0wHr9kYr3ivsNN1k57UfudvzoJE",
   authDomain: "med-auction.firebaseapp.com",
   projectId: "med-auction",
   storageBucket: "med-auction.firebasestorage.app",
