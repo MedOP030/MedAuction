@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, Navigate, useParams, useNavigate } from 'react-router-dom';
 import { useStore } from './store';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
@@ -22,7 +22,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <Router>
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
@@ -38,20 +38,44 @@ export default function App() {
         <Route path="/auction/:id/projector" element={<ProjectorView />} />
         <Route path="/invite/:token" element={<ProtectedRoute><InviteAccept /></ProtectedRoute>} />
       </Routes>
-    </BrowserRouter>
+    </Router>
   );
 }
 
 function InviteAccept() {
-  const token = window.location.pathname.split('/invite/')[1];
+  const { token } = useParams<{ token: string }>();
   const acceptInvitation = useStore(s => s.acceptInvitation);
   const currentUser = useStore(s => s.currentUser);
+  const invitations = useStore(s => s.invitations);
+  const navigate = useNavigate();
   const [result, setResult] = React.useState<{ success: boolean; error?: string } | null>(null);
 
   React.useEffect(() => {
     if (token && currentUser) {
       const res = acceptInvitation(token, currentUser.id);
       setResult(res);
+      
+      // Auto-redirect after successful acceptance
+      if (res.success) {
+        setTimeout(() => {
+          const invitation = invitations.find(i => i.token === token);
+          if (invitation) {
+            const role = invitation.role;
+            const auctionId = invitation.auctionId;
+            if (role === 'captain') {
+              navigate(`/auction/${auctionId}/captain`);
+            } else if (role === 'auctioneer') {
+              navigate(`/auction/${auctionId}/auctioneer`);
+            } else if (role === 'streamer') {
+              navigate(`/auction/${auctionId}/streamer`);
+            } else {
+              navigate(`/auction/${auctionId}/spectator`);
+            }
+          } else {
+            navigate('/dashboard');
+          }
+        }, 1500);
+      }
     }
   }, [token, currentUser]);
 
@@ -62,10 +86,13 @@ function InviteAccept() {
         {result?.success ? (
           <div>
             <p className="text-green-600 font-medium mb-4">✓ Invitation accepted successfully!</p>
-            <a href="/dashboard" className="text-blue-600 hover:underline">Go to Dashboard</a>
+            <p className="text-slate-500 text-sm">Redirecting to your workspace...</p>
           </div>
         ) : result?.error ? (
-          <p className="text-red-600">{result.error}</p>
+          <div>
+            <p className="text-red-600 mb-4">{result.error}</p>
+            <a href="#/dashboard" className="text-blue-600 hover:underline">Go to Dashboard</a>
+          </div>
         ) : (
           <p className="text-slate-500">Processing invitation...</p>
         )}
